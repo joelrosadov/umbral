@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Umbral</title>
+<meta name="description" content="Revisa los riesgos naturales de cualquier lugar o edificio en el mapa.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Ccircle cx='13' cy='13' r='12' fill='%230f7f8f'/%3E%3Cpath d='M5 15.5c2.6-1.8 4.9-1.8 7 0s4.4 1.8 7 0' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='13' cy='9.5' r='2.4' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="map" aria-label="Mapa. Toca un punto o un edificio para revisarlo."></div>
+
+<section id="top" class="card" aria-label="Buscar">
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true"><circle cx="13" cy="13" r="12" fill="var(--accent)"/><path d="M5 15.5c2.6-1.8 4.9-1.8 7 0s4.4 1.8 7 0 1.8-1 2-1" fill="none" stroke="var(--card)" stroke-width="2.2" stroke-linecap="round"/><circle cx="13" cy="9.5" r="2.4" fill="var(--card)"/></svg>
+    <b>Umbral</b><span>¿Qué riesgos tiene este lugar?</span>
+  </div>
+  <div class="search">
+    <div class="sbox">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12.2 12.2 16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      <input id="q" type="search" autocomplete="off" placeholder="Busca una dirección, lugar o coordenadas" aria-label="Buscar dirección, lugar o coordenadas" aria-controls="sugg">
+    </div>
+    <div id="sugg" role="listbox" hidden></div>
+  </div>
+  <div class="try" id="examples"><span>Prueba:</span></div>
+</section>
+
+<section id="tools" class="card" aria-label="Vista del mapa">
+  <div class="tabs" role="group" aria-label="Tipo de mapa">
+    <button data-base="calles" class="on" aria-pressed="true">Calles</button>
+    <button data-base="relieve" aria-pressed="false">Relieve</button>
+  </div>
+  <button id="btn3d" class="tool" aria-pressed="false" title="Vista 3D">3D</button>
+  <button id="btnLocate" class="tool" title="Mi ubicación" aria-label="Ir a mi ubicación"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="9" r="4"/><path d="M9 1v3M9 14v3M1 9h3M14 9h3"/></svg></button>
+</section>
+
+<aside id="result" class="card" aria-live="polite" aria-label="Resultado"></aside>
+
+<div id="hint">Toca cualquier punto o edificio del mapa</div>
+<div id="toast" hidden></div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
