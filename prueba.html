@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Umbral · prueba de fuentes</title>
+<style>
+  body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding:24px 16px;background:#eef4f5;color:#17262b;}
+  main{max-width:860px;margin:0 auto;}
+  h1{font-size:22px;margin:0 0 6px;}
+  p{color:#5f7177;margin:0 0 18px;line-height:1.5;}
+  table{width:100%;border-collapse:collapse;background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 8px 24px -14px rgba(0,0,0,.3);}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #e1e8e9;font-size:14px;vertical-align:top;}
+  th{background:#f3f6f6;font-size:12.5px;color:#5f7177;}
+  td small{display:block;color:#5f7177;font-size:12px;word-break:break-all;margin-top:2px;}
+  .ok{color:#2f9e6e;font-weight:700;} .bad{color:#d23a4f;font-weight:700;} .wait{color:#d39a12;font-weight:700;}
+  code{font-size:12.5px;}
+  #summary{margin-top:16px;font-weight:600;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Prueba de fuentes de datos</h1>
+  <p>Esta página comprueba si tu navegador puede leer cada fuente de riesgo directamente. Punto de prueba: Babahoyo, Ecuador (-1,8017; -79,5346). Cuando terminen todas las filas, toma una captura y envíala.</p>
+  <table>
+    <thead><tr><th>Fuente</th><th>Resultado</th><th>Valor en el punto</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div id="summary"></div>
+</main>
+<script src="vendor/geotiff.js"></script>
+<script>
+const LAT = -1.8017, LON = -79.5346;
+const TESTS = [
+  { n: "Inundación de ríos · JRC GloFAS (1 en 100 años)", url: "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-GLOFAS/flood_hazard/RP100/ID59_N0_W80_RP100_depth.tif", unit: "m" },
+  { n: "Altura sobre el cauce · HAND 30 m (ASF)", url: "https://glo-30-hand.s3.us-west-2.amazonaws.com/v1/2021/Copernicus_DSM_COG_10_S02_00_W080_00_HAND.tif", unit: "m" },
+  { n: "Elevación · Copernicus DEM 30 m", url: "https://copernicus-dem-30m.s3.amazonaws.com/Copernicus_DSM_COG_10_S02_00_W080_00_DEM/Copernicus_DSM_COG_10_S02_00_W080_00_DEM.tif", unit: "m" },
+  { n: "Inundación costera · Aqueduct (1 en 100 años)", url: "https://wri-projects.s3.amazonaws.com/AqueductFloodTool/download/v2/inuncoast_historical_nosub_hist_rp0100_0.tif", unit: "m" },
+  { n: "Inundación de ríos · Aqueduct (1 en 100 años)", url: "https://wri-projects.s3.amazonaws.com/AqueductFloodTool/download/v2/inunriver_historical_000000000WATCH_1980_rp00100.tif", unit: "m" }
+];
+const rows = document.getElementById("rows");
+TESTS.forEach((t, i) => rows.insertAdjacentHTML("beforeend",
+  `<tr><td>${t.n}<small>${t.url}</small></td><td id="s${i}" class="wait">Probando…</td><td id="v${i}">—</td></tr>`));
+
+async function probe(t, i) {
+  const s = document.getElementById("s" + i), v = document.getElementById("v" + i);
+  const t0 = performance.now();
+  try {
+    const r = await fetch(t.url, { headers: { Range: "bytes=0-1023" } });
+    if (!(r.status === 206 || r.status === 200)) throw new Error("El servidor respondió " + r.status);
+    const range = r.status === 206 ? "admite lectura parcial" : "NO admite lectura parcial";
+    const tiff = await GeoTIFF.fromUrl(t.url, { allowFullFile: false });
+    const img = await tiff.getImage();
+    const [x0, y1, x1, y0] = img.getBoundingBox();
+    const w = img.getWidth(), h = img.getHeight();
+    const px = Math.floor((LON - x0) / (x1 - x0) * w), py = Math.floor((y0 - LAT) / (y0 - y1) * h);
+    const meta = `${w}×${h} px · ${img.isTiled ? "en bloques" : "en franjas"} · ${range}`;
+    if (px < 0 || py < 0 || px >= w || py >= h) { s.className = "bad"; s.innerHTML = `Se lee, pero el punto queda fuera del archivo<small>${meta}</small>`; return; }
+    const data = await img.readRasters({ window: [px, py, px + 1, py + 1] });
+    const val = data[0][0], nd = img.getGDALNoData();
+    s.className = "ok"; s.innerHTML = `Funciona en ${Math.round(performance.now() - t0)} ms<small>${meta}</small>`;
+    v.textContent = (nd !== null && val === nd) ? "sin dato (nodata)" : `${Number(val).toFixed(2)} ${t.unit}`;
+  } catch (e) {
+    s.className = "bad";
+    s.innerHTML = `No se puede leer<small>${String(e.message || e).slice(0, 160)}${e instanceof TypeError ? " (probablemente el servidor no permite lectura desde otras páginas: CORS)" : ""}</small>`;
+  }
+}
+Promise.all(TESTS.map(probe)).then(() => {
+  const ok = document.querySelectorAll("td.ok").length;
+  document.getElementById("summary").textContent = `Listo: ${ok} de ${TESTS.length} fuentes se pueden leer directamente.`;
+});
+</script>
+</body>
+</html>
