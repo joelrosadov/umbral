@@ -37,6 +37,18 @@ y abre `http://localhost:8000`.
 - `app.js`: mapa, búsqueda, selección de edificios y ficha del lugar.
 - `vendor/`: MapLibre GL JS 4.7.1, incluido para no depender de un CDN.
 
+## Intermediario de datos (Cloudflare Worker)
+
+Los servidores que alojan los mapas de riesgo no permiten que otra página lea sus archivos directamente. El archivo `cloudflare/worker.js` es un intermediario gratuito que reenvía esas lecturas solo para esta página y guarda en caché lo que lee.
+
+1. Crea una cuenta gratuita en [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
+2. En el panel, entra a **Workers & Pages** y pulsa **Create** → **Create Worker**.
+3. Ponle de nombre `umbral-datos` y pulsa **Deploy**.
+4. Pulsa **Edit code**, borra el contenido, pega el de `cloudflare/worker.js` y pulsa **Deploy**.
+5. Copia la dirección del worker, por ejemplo `https://umbral-datos.tu-usuario.workers.dev`.
+
+El plan gratuito de Workers incluye 100.000 consultas al día.
+
 ## Fuentes de datos y servicios
 
 | Uso | Servicio | Licencia o condición |

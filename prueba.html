@@ -22,6 +22,7 @@
 <main>
   <h1>Prueba de fuentes de datos</h1>
   <p>Esta página comprueba si tu navegador puede leer cada fuente de riesgo directamente. Punto de prueba: Babahoyo, Ecuador (-1,8017; -79,5346). Cuando terminen todas las filas, toma una captura y envíala.</p>
+  <p id="mode"></p>
   <table>
     <thead><tr><th>Fuente</th><th>Resultado</th><th>Valor en el punto</th></tr></thead>
     <tbody id="rows"></tbody>
@@ -31,6 +32,12 @@
 <script src="vendor/geotiff.js"></script>
 <script>
 const LAT = -1.8017, LON = -79.5346;
+const qs = new URLSearchParams(location.search);
+let PROXY = qs.get("proxy") || "";
+try { if (PROXY) localStorage.setItem("umbralProxy", PROXY); else PROXY = localStorage.getItem("umbralProxy") || ""; } catch (e) {}
+PROXY = PROXY.replace(/\/+$/, "");
+const via = u => PROXY ? `${PROXY}/?url=${encodeURIComponent(u)}` : u;
+document.getElementById("mode").textContent = PROXY ? `Modo: a través del intermediario ${PROXY}` : "Modo: lectura directa (sin intermediario)";
 const TESTS = [
   { n: "Inundación de ríos · JRC GloFAS (1 en 100 años)", url: "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/CEMS-GLOFAS/flood_hazard/RP100/ID59_N0_W80_RP100_depth.tif", unit: "m" },
   { n: "Altura sobre el cauce · HAND 30 m (ASF)", url: "https://glo-30-hand.s3.us-west-2.amazonaws.com/v1/2021/Copernicus_DSM_COG_10_S02_00_W080_00_HAND.tif", unit: "m" },
@@ -46,10 +53,10 @@ async function probe(t, i) {
   const s = document.getElementById("s" + i), v = document.getElementById("v" + i);
   const t0 = performance.now();
   try {
-    const r = await fetch(t.url, { headers: { Range: "bytes=0-1023" } });
+    const r = await fetch(via(t.url), { headers: { Range: "bytes=0-1023" } });
     if (!(r.status === 206 || r.status === 200)) throw new Error("El servidor respondió " + r.status);
     const range = r.status === 206 ? "admite lectura parcial" : "NO admite lectura parcial";
-    const tiff = await GeoTIFF.fromUrl(t.url, { allowFullFile: false });
+    const tiff = await GeoTIFF.fromUrl(via(t.url), { allowFullFile: false });
     const img = await tiff.getImage();
     const [x0, y1, x1, y0] = img.getBoundingBox();
     const w = img.getWidth(), h = img.getHeight();
