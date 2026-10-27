@@ -7,7 +7,7 @@ Umbral muestra en un mapa los riesgos naturales de cualquier lugar o edificio de
 | Fase | Qué incluye | Estado |
 | --- | --- | --- |
 | 1 | Mapa mundial a nivel de calle, edificios, búsqueda de direcciones, elevación del terreno, vista 3D y relieve | Listo |
-| 2 | Riesgo real por punto: inundación fluvial (JRC/GloFAS), costera (WRI Aqueduct) y altura sobre el cauce más cercano (HAND) | Pendiente |
+| 2 | Riesgo real por punto: inundación fluvial (JRC/GloFAS), costera (WRI Aqueduct), altura sobre el cauce (HAND 30 m) y elevación (Copernicus 30 m) | En prueba |
 | 3 | Refinamiento por edificio y amenaza sísmica por país | Pendiente |
 | 4 | Carga de carteras y API | Pendiente |
 
@@ -35,14 +35,17 @@ y abre `http://localhost:8000`.
 - `index.html`: estructura de la página.
 - `styles.css`: estilos, con modo claro y oscuro.
 - `app.js`: mapa, búsqueda, selección de edificios y ficha del lugar.
-- `vendor/`: MapLibre GL JS 4.7.1, incluido para no depender de un CDN.
+- `risk.js`: lectura de las capas de riesgo y cálculo del nivel de riesgo.
+- `prueba.html`: página de diagnóstico de las fuentes de datos.
+- `cloudflare/worker.js`: intermediario de datos.
+- `vendor/`: MapLibre GL JS 4.7.1 y geotiff.js 2.1.3, incluidos para no depender de un CDN.
 
 ## Intermediario de datos (Cloudflare Worker)
 
 Los servidores que alojan los mapas de riesgo no permiten que otra página lea sus archivos directamente. El archivo `cloudflare/worker.js` es un intermediario gratuito que reenvía esas lecturas solo para esta página y guarda en caché lo que lee.
 
 1. Crea una cuenta gratuita en [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up).
-2. En el panel, entra a **Workers & Pages** y pulsa **Create** → **Create Worker**.
+2. En el panel, entra a **Compute (Workers) → Workers & Pages**, pulsa **Create application** y elige **Start with Hello World!**.
 3. Ponle de nombre `umbral-datos` y pulsa **Deploy**.
 4. Pulsa **Edit code**, borra el contenido, pega el de `cloudflare/worker.js` y pulsa **Deploy**.
 5. Copia la dirección del worker, por ejemplo `https://umbral-datos.tu-usuario.workers.dev`.
@@ -57,6 +60,10 @@ El plan gratuito de Workers incluye 100.000 consultas al día.
 | Elevación y relieve | [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) | Gratis con atribución a sus fuentes |
 | Búsqueda | [Photon](https://photon.komoot.io) | Servicio público gratuito, uso moderado |
 | Dirección del punto | [Nominatim](https://operations.osmfoundation.org/policies/nominatim/) | Máximo una consulta por segundo; la app ya respeta ese límite |
+| Inundación de ríos | [JRC / Copernicus GloFAS](https://data.jrc.ec.europa.eu/collection/id-0054) | Producto Copernicus libre y abierto |
+| Altura sobre el cauce | [ASF Global HAND 30 m](https://registry.opendata.aws/glo-30-hand/) | CC0 |
+| Elevación 30 m | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/) | Libre con atribución a DLR / Airbus |
+| Inundación costera | [WRI Aqueduct Floods](https://www.wri.org/data/aqueduct-floods-hazard-maps) | CC BY 4.0 |
 | Librería de mapas | [MapLibre GL JS](https://maplibre.org) | BSD-3-Clause |
 
 Cuando el tráfico crezca, Photon y Nominatim deben reemplazarse por una instancia propia o un proveedor, porque los servicios públicos tienen límites de uso.

@@ -15,7 +15,8 @@ const ALLOWED_HOSTS = [
   "jeodpp.jrc.ec.europa.eu",              // JRC / GloFAS: inundación de ríos
   "glo-30-hand.s3.us-west-2.amazonaws.com", // ASF: altura sobre el cauce (HAND)
   "copernicus-dem-30m.s3.amazonaws.com",  // Copernicus DEM: elevación
-  "wri-projects.s3.amazonaws.com"         // WRI Aqueduct: inundación costera
+  "aqueduct.wridata.org",                 // WRI Aqueduct: inundación costera (servidor actual)
+  "wri-projects.s3.amazonaws.com"         // WRI Aqueduct: servidor anterior
 ];
 
 // Páginas que pueden usar este intermediario

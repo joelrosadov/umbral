@@ -99,7 +99,7 @@ function setPin(lon, lat, { fly = true, zoom, point } = {}) {
   marker.setLngLat([lon, lat]).addTo(map);
   if (fly) map.flyTo({ center: [lon, lat], zoom: zoom || Math.max(map.getZoom(), 17), duration: REDUCED ? 0 : 1400, padding: mapPadding() });
   const id = ++reqId;
-  current = { lon, lat, place: null, building: null, elev: null };
+  current = { lon, lat, place: null, building: null, elev: null, risk: null };
   const pick = () => {
     const pt = point && !fly ? point : map.project([lon, lat]);
     current.building = describeBuilding(buildingAt(pt));
@@ -110,6 +110,7 @@ function setPin(lon, lat, { fly = true, zoom, point } = {}) {
   if (fly) map.once("idle", () => { if (id === reqId) pick(); }); else pick();
   elevationAt(lon, lat).then(v => { if (id === reqId) { current.elev = v; render(); } });
   reverse(lon, lat).then(r => { if (id === reqId) { current.place = r; render(); } });
+  if (window.Risk) Risk.analyze(lon, lat, s => { if (id === reqId) { current.risk = s; render(); } }).then(s => { if (id === reqId) { current.risk = s; render(); } });
   const url = new URL(location.href); url.searchParams.set("p", `${lat.toFixed(6)},${lon.toFixed(6)}`); history.replaceState(null, "", url);
 }
 function mapPadding() {
@@ -205,7 +206,10 @@ function render() {
   const loading = '<span class="loading" aria-label="Cargando"></span>';
   const place = c.place;
   const b = c.building;
-  const elevTxt = c.elev === null ? loading : Number.isFinite(c.elev) ? `${nf(c.elev)} m` : "—";
+  const dem = c.risk && c.risk.raw.dem;
+  const demOk = dem && dem.status === "ok" && dem.value !== null;
+  const elevVal = demOk ? dem.value : c.elev;
+  const elevTxt = elevVal === null ? loading : Number.isFinite(elevVal) ? `${nf(elevVal, elevVal < 10 ? 1 : 0)} m` : "—";
   const facts = [
     `<div class="fact"><span>Elevación del terreno</span><b>${elevTxt}</b><small>sobre el nivel del mar</small></div>`,
     b ? `<div class="fact"><span>Edificio</span><b>${nf(b.area)} m²</b><small>área de la huella</small></div>`
@@ -222,24 +226,52 @@ function render() {
       <h2>${place ? esc(place.title) : loading}</h2>
       <p>${place ? esc(place.sub) : "Buscando la dirección…"}</p>
     </div><button id="sheetBtn" class="btn" aria-expanded="true">Ocultar</button></div>
+    ${riskHtml(c.risk, ico)}
     <div class="facts">${facts.join("")}</div>
-    <div class="sec">
-      <h3>Riesgo del lugar</h3>
-      <p>En la siguiente fase se conectan las capas reales para este punto exacto.</p>
-      <div class="soon">
-        <div><i>${ico.rio}</i>Desborde de ríos y altura sobre el cauce<em>Fase 2</em></div>
-        <div><i>${ico.mar}</i>Inundación desde el mar<em>Fase 2</em></div>
-        <div><i>${ico.sismo}</i>Terremotos y volcanes<em>Fase 3</em></div>
-      </div>
-    </div>
     <div class="foot">
       <button class="btn" id="shareBtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 8l5-5M8 2.5h3.5V6M11.5 8.5v3h-9v-9h3"/></svg>Copiar enlace</button>
       <span class="coords">${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</span>
     </div>`;
+  const rb = $("#retryBtn"); if (rb) rb.onclick = () => setPin(c.lon, c.lat, { fly: false });
   $("#shareBtn").onclick = () => copy(location.href, "Enlace copiado");
   const sb = $("#sheetBtn");
   if (box.classList.contains("min")) { sb.textContent = "Ver más"; sb.setAttribute("aria-expanded", "false"); }
   sb.onclick = () => { const m = box.classList.toggle("min"); sb.textContent = m ? "Ver más" : "Ocultar"; sb.setAttribute("aria-expanded", String(!m)); };
+}
+function riskHtml(R, ico) {
+  const spin = '<span class="loading" aria-label="Cargando"></span>';
+  const LV = ["low", "med", "high", "vhigh"];
+  const pill = l => `<span class="lvl" style="color:var(--${LV[l]});background:color-mix(in srgb,var(--${LV[l]}) 14%,transparent)">${Risk.LEVELS[l]}</span>`;
+  if (!R) return `<div class="verdict pending"><b>Analizando el riesgo ${spin}</b><span>Leyendo los mapas de inundación para este punto exacto.</span></div>`;
+  const row = (k, title, part, loadingTxt) => `<div class="row"><span class="ic" style="${part && part.lvl ? `color:var(--${LV[part.lvl]})` : ""}">${ico[k]}</span><div><div class="row-t"><strong>${title}</strong>${!part ? spin : part.lvl === null ? '<span class="soon-pill">Sin dato</span>' : pill(part.lvl)}</div><p>${part ? esc(part.why) : loadingTxt}</p></div></div>`;
+  const top = R.top;
+  const verdict = R.failedAll
+    ? `<div class="verdict pending"><b>No pudimos analizar este punto</b><span>Los mapas de riesgo no respondieron. <button class="link" id="retryBtn">Intentar de nuevo</button></span></div>`
+    : top === null
+    ? `<div class="verdict pending"><b>Analizando el riesgo ${spin}</b><span>${R.loaded} de ${R.total} capas leídas. La primera consulta de una zona puede tardar unos segundos.</span></div>`
+    : `<div class="verdict" style="background:color-mix(in srgb,var(--${LV[top]}) 13%,transparent)"><b style="color:var(--${LV[top]})">Riesgo de inundación ${Risk.LEVELS[top].toLowerCase()}</b><span>${R.partial && R.done ? "Resultado parcial: una de las capas no respondió. " : ""}${top === 0 ? "No encontramos amenazas de inundación importantes en este punto." : `Lo que más pesa aquí: ${[R.fluv, R.coast].filter(Boolean).sort((a, b) => b.lvl - a.lvl)[0] === R.fluv ? "el desborde de ríos" : "las marejadas"}.`}${R.done ? "" : ` ${spin}`}</span></div>`;
+  const r = R.raw, d = s => s && s.status === "ok" ? (s.value && s.value > 0.05 ? `${nf(s.value, 2)} m` : "0 m") : s && s.status === "nocover" ? "sin cobertura" : s ? "no disponible" : "…";
+  const hand = r.hand && r.hand.status === "ok" && r.hand.value !== null ? `${nf(r.hand.value, 1)} m` : d(r.hand);
+  const dem = r.dem && r.dem.status === "ok" && r.dem.value !== null ? `${nf(r.dem.value, 1)} m` : d(r.dem);
+  const failed = Object.entries(r).filter(([, s]) => s.status === "error").map(([k]) => k);
+  return `${verdict}
+    <div class="rows">
+      ${row("rio", "Desborde de ríos", R.fluv, "Leyendo el mapa de crecidas y la altura sobre el cauce…")}
+      ${row("mar", "Inundación desde el mar", R.coast, "Leyendo el mapa costero…")}
+      <div class="row"><span class="ic">${ico.sismo}</span><div><div class="row-t"><strong>Terremotos y volcanes</strong><span class="soon-pill">Fase 3</span></div><p>Se agregan en la siguiente fase, empezando por Ecuador y Centroamérica.</p></div></div>
+    </div>
+    <details class="tech-wrap"><summary><svg width="12" height="12" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ver datos técnicos</summary>
+      <div class="tech">
+        <div><span>Crecida 1 en 10 años</span><b>${d(r.fl10)}</b></div>
+        <div><span>Crecida 1 en 100 años</span><b>${d(r.fl100)}</b></div>
+        <div><span>Crecida 1 en 500 años</span><b>${d(r.fl500)}</b></div>
+        <div><span>Máx. a menos de 150 m (1 en 100)</span><b>${r.fl100 && r.fl100.status === "ok" && r.fl100.max ? nf(r.fl100.max, 2) + " m" : d(r.fl100)}</b></div>
+        <div><span>Altura sobre el cauce (HAND)</span><b>${hand}</b></div>
+        <div><span>Elevación (Copernicus 30 m)</span><b>${dem}</b></div>
+        <div><span>Marejada 1 en 100 años</span><b>${d(r.coast100)}</b></div>
+        ${failed.length ? `<p class="warn">Algunas capas no respondieron (${failed.join(", ")}). El resultado se calculó con las demás.</p>` : ""}
+        <p>Fuentes: JRC/Copernicus GloFAS (ríos, celda ~90 m), ASF HAND y Copernicus DEM (30 m), WRI Aqueduct (mar, celda ~1 km). Los mapas globales no consideran muros ni diques de protección. Es una estimación para orientar, no un estudio técnico.</p>
+      </div></details>`;
 }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
