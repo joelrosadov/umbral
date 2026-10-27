@@ -49,7 +49,7 @@
     return images.get(url);
   }
   const timeout = (p, ms) => Promise.race([p, new Promise((_, r) => setTimeout(() => r(new Error("tiempo agotado")), ms))]);
-  async function sample(url, lon, lat, radius = 1, ms = 40000) {
+  async function sample(url, lon, lat, radius = 1, ms = 40000, keep = false) {
     if (!url) return { status: "nocover" };
     try {
       const img = await timeout(openImage(url), ms);
@@ -65,7 +65,8 @@
       const c = arr[(py - y0) * (x1 - x0) + (px - x0)];
       const valid = arr.filter(ok);
       const cellM = (maxX - minX) / w * 111320 * Math.cos(lat * Math.PI / 180);
-      return { status: "ok", value: ok(c) ? c : null, max: valid.length ? Math.max(...valid) : null, min: valid.length ? Math.min(...valid) : null, cellM };
+      return { status: "ok", value: ok(c) ? c : null, max: valid.length ? Math.max(...valid) : null, min: valid.length ? Math.min(...valid) : null, cellM,
+        grid: keep ? { arr: arr.map(x => ok(x) ? x : NaN), w: x1 - x0, h: y1 - y0, cx: px - x0, cy: py - y0 } : null };
     } catch (e) {
       return { status: "error", error: String(e.message || e) };
     }
@@ -110,6 +111,42 @@
     if (elev !== null && elev < 3) return { lvl: 1, why: `El mapa costero no lo marca, pero el terreno está a solo ${fmt(elev)} m sobre el nivel del mar.` };
     return { lvl: 0, why: "No está expuesto a marejadas según el mapa costero." };
   }
+  /* Encharcamiento por lluvia: indicador a partir del relieve (Copernicus DEM 30 m) y del HAND.
+     - Hondonada: cuánto más bajo está el punto que el terreno típico a su alrededor (~250 m).
+     - Pendiente: si el terreno es plano, el agua no escurre.
+     - Cercanía al nivel del cauce: drena mal cuando los ríos y quebradas suben. */
+  function terrainOf(r) {
+    const s = r.dem;
+    if (!s || s.status !== "ok" || !s.grid || s.value === null) return null;
+    const { arr, w, h, cx, cy } = s.grid, c = s.value, cell = s.cellM || 30;
+    const ring = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const dd = Math.hypot(x - cx, y - cy);
+      if (dd >= 2 && Number.isFinite(arr[y * w + x])) ring.push(arr[y * w + x]);
+    }
+    if (ring.length < 20) return null;
+    ring.sort((a, b) => a - b);
+    const q = p => ring[Math.min(ring.length - 1, Math.floor(p * ring.length))];
+    const depression = q(0.25) - c;          // positivo: el punto está más bajo que el terreno de alrededor
+    const at = (x, y) => arr[Math.max(0, Math.min(h - 1, y)) * w + Math.max(0, Math.min(w - 1, x))];
+    const gx = (at(cx + 1, cy) - at(cx - 1, cy)) / (2 * cell), gy = (at(cx, cy + 1) - at(cx, cy - 1)) / (2 * cell);
+    const slope = Number.isFinite(gx + gy) ? Math.hypot(gx, gy) * 100 : null;   // en %
+    return { depression, slope };
+  }
+  function pluvialLevel(r) {
+    const t = terrainOf(r);
+    const hand = r.hand && r.hand.status === "ok" && r.hand.value !== null ? r.hand.value : null;
+    if (!t) return { lvl: null, why: r.dem && r.dem.status !== "ok" ? "No pudimos leer el relieve del terreno en este momento." : "No hay datos de relieve para este punto." };
+    let pts = 0; const why = [];
+    if (t.depression > 1.5) { pts += 2; why.push(`está ${fmt(t.depression)} m más bajo que el terreno a su alrededor, así que el agua tiende a juntarse ahí`); }
+    else if (t.depression > 0.5) { pts += 1; why.push(`está algo más bajo que su entorno (${fmt(t.depression)} m)`); }
+    if (t.slope !== null && t.slope < 1) { pts += 1; why.push("el terreno es casi plano y el agua escurre despacio"); }
+    else if (t.slope !== null && t.slope > 8) { pts -= 1; why.push("el terreno tiene pendiente y el agua escurre rápido"); }
+    if (hand !== null && hand < 2) { pts += 1; why.push("está cerca del nivel del cauce y drena mal cuando suben los ríos"); }
+    const lvl = Math.max(0, Math.min(3, pts >= 4 ? 3 : pts === 3 ? 2 : pts === 2 ? 1 : 0));
+    const text = why.length ? `${why[0].charAt(0).toUpperCase()}${why[0].slice(1)}${why.length > 1 ? "; " + why.slice(1).join("; ") : ""}.` : "El punto no está en una hondonada y el agua puede escurrir.";
+    return { lvl, why: text, terrain: t };
+  }
   const fmt = v => Number(v).toLocaleString("es", { maximumFractionDigits: v < 10 ? 1 : 0 });
 
   /* Análisis completo con avances parciales */
@@ -120,7 +157,7 @@
       fl100: () => sample(jrcUrl(lon, lat, 100), lon, lat, 2),
       fl500: () => sample(jrcUrl(lon, lat, 500), lon, lat),
       hand: () => sample(handUrl(lon, lat), lon, lat, 0),
-      dem: () => sample(demUrl(lon, lat), lon, lat, 0),
+      dem: () => sample(demUrl(lon, lat), lon, lat, 8, 40000, true),
       coast100: () => sample(coastUrl(100), lon, lat, 1)
     };
     const all = Object.entries(jobs).map(([k, fn]) => fn().then(v => { r[k] = v; onUpdate(summarize(r)); }));
@@ -131,13 +168,14 @@
     const keys = ["fl10", "fl100", "fl500", "hand", "dem", "coast100"];
     const loaded = keys.filter(k => r[k]).length;
     const fluvReady = r.fl10 && r.fl100 && r.fl500 && r.hand;
+    const pluv = r.dem && r.hand ? pluvialLevel(r) : null;
     const fluv = fluvReady ? fluvialLevel(r) : null;
     const coast = r.coast100 ? coastalLevel(r) : null;
-    const parts = [fluv && { k: "rio", ...fluv }, coast && { k: "mar", ...coast }].filter(Boolean);
+    const parts = [fluv && { k: "rio", ...fluv }, pluv && { k: "lluvia", ...pluv }, coast && { k: "mar", ...coast }].filter(Boolean);
     const known = parts.filter(p => p.lvl !== null);
     const top = known.length ? Math.max(...known.map(p => p.lvl)) : null;
     const failedAll = done && !known.length;
-    return { raw: r, loaded, total: keys.length, done: done || loaded === keys.length, fluv, coast, top, failedAll, partial: known.length < 2, LEVELS };
+    return { raw: r, loaded, total: keys.length, done: done || loaded === keys.length, fluv, coast, top, failedAll, partial: known.length < 3, pluv, parts, LEVELS };
   }
 
   window.Risk = { analyze, LEVELS, sources: { jrcUrl, handUrl, demUrl, coastUrl } };

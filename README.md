@@ -7,7 +7,7 @@ Umbral muestra en un mapa los riesgos naturales de cualquier lugar o edificio de
 | Fase | Qué incluye | Estado |
 | --- | --- | --- |
 | 1 | Mapa mundial a nivel de calle, edificios, búsqueda de direcciones, elevación del terreno, vista 3D y relieve | Listo |
-| 2 | Riesgo real por punto: inundación fluvial (JRC/GloFAS), costera (WRI Aqueduct), altura sobre el cauce (HAND 30 m) y elevación (Copernicus 30 m) | En prueba |
+| 2 | Riesgo real por punto: inundación fluvial (JRC/GloFAS), costera (WRI Aqueduct), encharcamiento por lluvia (relieve 30 m + HAND), y pronóstico de lluvia y caudal en tiempo real | En prueba |
 | 3 | Refinamiento por edificio y amenaza sísmica por país | Pendiente |
 | 4 | Carga de carteras y API | Pendiente |
 
@@ -36,6 +36,7 @@ y abre `http://localhost:8000`.
 - `styles.css`: estilos, con modo claro y oscuro.
 - `app.js`: mapa, búsqueda, selección de edificios y ficha del lugar.
 - `risk.js`: lectura de las capas de riesgo y cálculo del nivel de riesgo.
+- `forecast.js`: pronóstico de lluvia (MET Norway) y de caudal del río más cercano (GloFAS vía Open-Meteo).
 - `prueba.html`: página de diagnóstico de las fuentes de datos.
 - `cloudflare/worker.js`: intermediario de datos.
 - `vendor/`: MapLibre GL JS 4.7.1 y geotiff.js 2.1.3, incluidos para no depender de un CDN.
@@ -64,6 +65,8 @@ El plan gratuito de Workers incluye 100.000 consultas al día.
 | Altura sobre el cauce | [ASF Global HAND 30 m](https://registry.opendata.aws/glo-30-hand/) | CC0 |
 | Elevación 30 m | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/) | Libre con atribución a DLR / Airbus |
 | Inundación costera | [WRI Aqueduct Floods](https://www.wri.org/data/aqueduct-floods-hazard-maps) | CC BY 4.0 |
+| Pronóstico de lluvia | [MET Norway Locationforecast](https://api.met.no/doc/TermsOfService) | CC BY 4.0, uso comercial permitido |
+| Pronóstico de caudal | [Open-Meteo Flood API](https://open-meteo.com/en/terms) (datos GloFAS) | Gratis solo sin fines comerciales: contratar plan o reemplazar antes de vender |
 | Librería de mapas | [MapLibre GL JS](https://maplibre.org) | BSD-3-Clause |
 
 Cuando el tráfico crezca, Photon y Nominatim deben reemplazarse por una instancia propia o un proveedor, porque los servicios públicos tienen límites de uso.

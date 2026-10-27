@@ -99,7 +99,7 @@ function setPin(lon, lat, { fly = true, zoom, point } = {}) {
   marker.setLngLat([lon, lat]).addTo(map);
   if (fly) map.flyTo({ center: [lon, lat], zoom: zoom || Math.max(map.getZoom(), 17), duration: REDUCED ? 0 : 1400, padding: mapPadding() });
   const id = ++reqId;
-  current = { lon, lat, place: null, building: null, elev: null, risk: null };
+  current = { lon, lat, place: null, building: null, elev: null, risk: null, fc: { rain: null, river: null } };
   const pick = () => {
     const pt = point && !fly ? point : map.project([lon, lat]);
     current.building = describeBuilding(buildingAt(pt));
@@ -110,6 +110,11 @@ function setPin(lon, lat, { fly = true, zoom, point } = {}) {
   if (fly) map.once("idle", () => { if (id === reqId) pick(); }); else pick();
   elevationAt(lon, lat).then(v => { if (id === reqId) { current.elev = v; render(); } });
   reverse(lon, lat).then(r => { if (id === reqId) { current.place = r; render(); } });
+  if (window.Forecast) {
+    const f = Forecast.forecast(lon, lat);
+    f.rain.then(v => { if (id === reqId) { current.fc.rain = v; render(); } });
+    f.river.then(v => { if (id === reqId) { current.fc.river = v; render(); } });
+  }
   if (window.Risk) Risk.analyze(lon, lat, s => { if (id === reqId) { current.risk = s; render(); } }).then(s => { if (id === reqId) { current.risk = s; render(); } });
   const url = new URL(location.href); url.searchParams.set("p", `${lat.toFixed(6)},${lon.toFixed(6)}`); history.replaceState(null, "", url);
 }
@@ -219,6 +224,7 @@ function render() {
   const ico = {
     rio: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1 6c2-1.6 3.6-1.6 5 0s3 1.6 5 0 3-1.6 4 0M1 11c2-1.6 3.6-1.6 5 0s3 1.6 5 0 3-1.6 4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
     mar: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1 12c2.5-1.8 4.5-1.8 7 0s4.5 1.8 7 0M3 8.5C4 4 9 2 13 4.2 10.5 4 9 6 9.6 8.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    lluvia: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M4.5 9.5a3 3 0 0 1 .4-6A4 4 0 0 1 12.5 5a2.3 2.3 0 0 1 0 4.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M5.5 11.5l-1 2.5M8.5 11.5l-1 2.5M11.5 11.5l-1 2.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>',
     sismo: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M1 8h3l1.5-4 2.5 9 2-7 1.5 3H15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
   box.innerHTML = `
@@ -226,7 +232,7 @@ function render() {
       <h2>${place ? esc(place.title) : loading}</h2>
       <p>${place ? esc(place.sub) : "Buscando la dirección…"}</p>
     </div><button id="sheetBtn" class="btn" aria-expanded="true">Ocultar</button></div>
-    ${riskHtml(c.risk, ico)}
+    ${riskHtml(c.risk, ico, c.fc)}
     <div class="facts">${facts.join("")}</div>
     <div class="foot">
       <button class="btn" id="shareBtn"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 8l5-5M8 2.5h3.5V6M11.5 8.5v3h-9v-9h3"/></svg>Copiar enlace</button>
@@ -238,7 +244,7 @@ function render() {
   if (box.classList.contains("min")) { sb.textContent = "Ver más"; sb.setAttribute("aria-expanded", "false"); }
   sb.onclick = () => { const m = box.classList.toggle("min"); sb.textContent = m ? "Ver más" : "Ocultar"; sb.setAttribute("aria-expanded", String(!m)); };
 }
-function riskHtml(R, ico) {
+function riskHtml(R, ico, fc) {
   const spin = '<span class="loading" aria-label="Cargando"></span>';
   const LV = ["low", "med", "high", "vhigh"];
   const pill = l => `<span class="lvl" style="color:var(--${LV[l]});background:color-mix(in srgb,var(--${LV[l]}) 14%,transparent)">${Risk.LEVELS[l]}</span>`;
@@ -249,7 +255,7 @@ function riskHtml(R, ico) {
     ? `<div class="verdict pending"><b>No pudimos analizar este punto</b><span>Los mapas de riesgo no respondieron. <button class="link" id="retryBtn">Intentar de nuevo</button></span></div>`
     : top === null
     ? `<div class="verdict pending"><b>Analizando el riesgo ${spin}</b><span>${R.loaded} de ${R.total} capas leídas. La primera consulta de una zona puede tardar unos segundos.</span></div>`
-    : `<div class="verdict" style="background:color-mix(in srgb,var(--${LV[top]}) 13%,transparent)"><b style="color:var(--${LV[top]})">Riesgo de inundación ${Risk.LEVELS[top].toLowerCase()}</b><span>${R.partial && R.done ? "Resultado parcial: una de las capas no respondió. " : ""}${top === 0 ? "No encontramos amenazas de inundación importantes en este punto." : `Lo que más pesa aquí: ${[R.fluv, R.coast].filter(Boolean).sort((a, b) => b.lvl - a.lvl)[0] === R.fluv ? "el desborde de ríos" : "las marejadas"}.`}${R.done ? "" : ` ${spin}`}</span></div>`;
+    : `<div class="verdict" style="background:color-mix(in srgb,var(--${LV[top]}) 13%,transparent)"><b style="color:var(--${LV[top]})">Riesgo de inundación ${Risk.LEVELS[top].toLowerCase()}</b><span>${R.partial && R.done ? "Resultado parcial: una de las capas no respondió. " : ""}${top === 0 ? "No encontramos amenazas de inundación importantes en este punto." : `Lo que más pesa aquí: ${{ rio: "el desborde de ríos", lluvia: "el encharcamiento por lluvia", mar: "las marejadas" }[R.parts.filter(p => p.lvl !== null).sort((a, b) => b.lvl - a.lvl)[0].k]}.`}${R.done ? "" : ` ${spin}`}</span></div>`;
   const r = R.raw, d = s => s && s.status === "ok" ? (s.value && s.value > 0.05 ? `${nf(s.value, 2)} m` : "0 m") : s && s.status === "nocover" ? "sin cobertura" : s ? "no disponible" : "…";
   const hand = r.hand && r.hand.status === "ok" && r.hand.value !== null ? `${nf(r.hand.value, 1)} m` : d(r.hand);
   const dem = r.dem && r.dem.status === "ok" && r.dem.value !== null ? `${nf(r.dem.value, 1)} m` : d(r.dem);
@@ -257,9 +263,11 @@ function riskHtml(R, ico) {
   return `${verdict}
     <div class="rows">
       ${row("rio", "Desborde de ríos", R.fluv, "Leyendo el mapa de crecidas y la altura sobre el cauce…")}
+      ${row("lluvia", "Encharcamiento por lluvia", R.pluv, "Analizando el relieve alrededor del punto…")}
       ${row("mar", "Inundación desde el mar", R.coast, "Leyendo el mapa costero…")}
       <div class="row"><span class="ic">${ico.sismo}</span><div><div class="row-t"><strong>Terremotos y volcanes</strong><span class="soon-pill">Fase 3</span></div><p>Se agregan en la siguiente fase, empezando por Ecuador y Centroamérica.</p></div></div>
     </div>
+    ${forecastHtml(fc, ico)}
     <details class="tech-wrap"><summary><svg width="12" height="12" viewBox="0 0 12 12"><path d="M4 2l4 4-4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>Ver datos técnicos</summary>
       <div class="tech">
         <div><span>Crecida 1 en 10 años</span><b>${d(r.fl10)}</b></div>
@@ -269,9 +277,53 @@ function riskHtml(R, ico) {
         <div><span>Altura sobre el cauce (HAND)</span><b>${hand}</b></div>
         <div><span>Elevación (Copernicus 30 m)</span><b>${dem}</b></div>
         <div><span>Marejada 1 en 100 años</span><b>${d(r.coast100)}</b></div>
+        <div><span>Hondonada (vs. terreno a ~250 m)</span><b>${R.pluv && R.pluv.terrain ? `${R.pluv.terrain.depression > 0 ? "" : "+"}${nf(-R.pluv.terrain.depression, 1)} m` : "…"}</b></div>
+        <div><span>Pendiente del terreno</span><b>${R.pluv && R.pluv.terrain && R.pluv.terrain.slope !== null ? nf(R.pluv.terrain.slope, 1) + " %" : "…"}</b></div>
         ${failed.length ? `<p class="warn">Algunas capas no respondieron (${failed.join(", ")}). El resultado se calculó con las demás.</p>` : ""}
-        <p>Fuentes: JRC/Copernicus GloFAS (ríos, celda ~90 m), ASF HAND y Copernicus DEM (30 m), WRI Aqueduct (mar, celda ~1 km). Los mapas globales no consideran muros ni diques de protección. Es una estimación para orientar, no un estudio técnico.</p>
+        <p>Fuentes: JRC/Copernicus GloFAS (ríos, celda ~90 m), ASF HAND y Copernicus DEM (30 m), WRI Aqueduct (mar, celda ~1 km). El encharcamiento es un indicador del relieve: no considera alcantarillado ni drenajes, y en ciudades los edificios pueden exagerar las hondonadas. Los mapas globales no consideran muros ni diques de protección. Es una estimación para orientar, no un estudio técnico.</p>
       </div></details>`;
+}
+function forecastHtml(fc, ico) {
+  const spin = '<span class="loading" aria-label="Cargando"></span>';
+  const LV = ["low", "med", "high", "vhigh"];
+  const RAIN_TXT = ["Sin lluvias fuertes", "Lluvia moderada", "Lluvia fuerte", "Lluvia muy fuerte"];
+  const pill = (l, txt) => `<span class="lvl" style="color:var(--${LV[l]});background:color-mix(in srgb,var(--${LV[l]}) 14%,transparent)">${txt}</span>`;
+  const rain = fc && fc.rain, riv = fc && fc.river;
+  let rainHtml;
+  if (!rain) rainHtml = `<p class="fc-msg">${spin} Consultando el pronóstico de lluvia…</p>`;
+  else if (rain.error) rainHtml = `<p class="fc-msg">No pudimos obtener el pronóstico de lluvia en este momento.</p>`;
+  else {
+    const W = 330, H = 120, top = 18, base = 92, n = rain.days.length, bw = W / n;
+    const scaleMax = Math.max(60, rain.maxDay * 1.15);
+    const y = mm => base - (mm / scaleMax) * (base - top);
+    const col = mm => mm >= 100 ? "var(--vhigh)" : mm >= 50 ? "var(--high)" : mm >= 20 ? "var(--med)" : "var(--rain)";
+    const dn = ds => new Date(ds + "T12:00:00Z").toLocaleDateString("es", { weekday: "short", timeZone: "UTC" }).replace(".", "");
+    const bars = rain.days.map((d, i) => {
+      const x = i * bw + bw * 0.18, w = bw * 0.64, yy = Math.min(y(d.mm), base - (d.mm > 0.05 ? 2 : 0));
+      return `<rect x="${x.toFixed(1)}" y="${yy.toFixed(1)}" width="${w.toFixed(1)}" height="${(base - yy).toFixed(1)}" rx="3" fill="${col(d.mm)}"/>
+        <text x="${(x + w / 2).toFixed(1)}" y="${(yy - 5).toFixed(1)}" class="v">${d.mm >= 0.5 ? nf(d.mm, d.mm < 10 ? 1 : 0) : "0"}</text>
+        <text x="${(x + w / 2).toFixed(1)}" y="${base + 16}" class="d">${i === 0 ? "hoy" : dn(d.date)}</text>`;
+    }).join("");
+    const y50 = y(50);
+    const msg = rain.lvl === 0
+      ? `No se esperan lluvias fuertes. Máximo: ${nf(rain.maxDay, 0)} mm en un día.`
+      : `El día más lluvioso sería el ${rain.peak.date === rain.days[0].date ? "de hoy" : new Date(rain.peak.date + "T12:00:00Z").toLocaleDateString("es", { weekday: "long", day: "numeric", timeZone: "UTC" })}, con unos ${nf(rain.peak.mm, 0)} mm${rain.maxHour >= 20 ? ` y aguaceros de hasta ${nf(rain.maxHour, 0)} mm en una hora` : ""}.`;
+    rainHtml = `<div class="fc-row"><span class="ic">${ico.lluvia}</span><div><div class="row-t"><strong>Lluvia</strong>${pill(rain.lvl, RAIN_TXT[rain.lvl])}</div><p>${msg} Próximas 24 h: ${nf(rain.next24, rain.next24 < 10 ? 1 : 0)} mm.</p></div></div>
+      <svg class="fc-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Lluvia pronosticada por día, en milímetros">
+        ${y50 > top ? `<line x1="0" x2="${W}" y1="${y50.toFixed(1)}" y2="${y50.toFixed(1)}" class="th"/><text x="${W - 2}" y="${(y50 - 4).toFixed(1)}" class="tl">50 mm</text>` : ""}
+        <line x1="0" x2="${W}" y1="${base}" y2="${base}" class="ax"/>${bars}</svg>`;
+  }
+  let rivHtml;
+  if (!riv) rivHtml = `<p class="fc-msg">${spin} Consultando el caudal del río más cercano…</p>`;
+  else if (riv.error) rivHtml = `<p class="fc-msg">No pudimos obtener el pronóstico del río en este momento.</p>`;
+  else if (riv.none) rivHtml = `<div class="fc-row"><span class="ic">${ico.rio}</span><div><div class="row-t"><strong>Río más cercano</strong></div><p>No hay un río grande a menos de unos 5 km.</p></div></div>`;
+  else {
+    const RTXT = ["Caudal normal", "Caudal alto", "Crecida", "Crecida excepcional"];
+    const when = new Date(riv.peak.date + "T12:00:00Z").toLocaleDateString("es", { weekday: "long", day: "numeric", timeZone: "UTC" });
+    rivHtml = `<div class="fc-row"><span class="ic">${ico.rio}</span><div><div class="row-t"><strong>Río más cercano</strong>${pill(riv.lvl, RTXT[riv.lvl])}</div><p>Caudal máximo esperado: ${nf(riv.peak.q, riv.peak.q < 10 ? 1 : 0)} m³/s el ${when}. Es mayor que el ${nf(Math.min(riv.pct, 99.9), riv.pct > 99 ? 1 : 0)} % de los días desde el año 2000 (caudal típico: ${nf(riv.p50, riv.p50 < 10 ? 1 : 0)} m³/s).</p></div></div>`;
+  }
+  return `<div class="sec fc"><h3>Próximos días <small>${rain && rain.updated ? "pronóstico de " + new Date(rain.updated).toLocaleString("es", { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : "en tiempo real"}</small></h3>${rainHtml}${rivHtml}
+    <p class="fc-src">Lluvia: <a href="https://api.met.no/" target="_blank" rel="noopener">MET Norway</a> (CC BY 4.0). Caudal: GloFAS vía <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>, río principal a menos de ~5 km.</p></div>`;
 }
 const esc = s => String(s ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
