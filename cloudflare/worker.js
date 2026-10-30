@@ -19,8 +19,10 @@ const RASTER_HOSTS = [
   "glo-30-hand.s3.us-west-2.amazonaws.com", // ASF: altura sobre el cauce (HAND)
   "copernicus-dem-30m.s3.amazonaws.com",    // Copernicus DEM: elevación
   "aqueduct.wridata.org",                   // WRI Aqueduct: inundación costera
-  "wri-projects.s3.amazonaws.com"           // WRI Aqueduct: servidor anterior
+  "wri-projects.s3.amazonaws.com",          // WRI Aqueduct: servidor anterior
+  "storage.googleapis.com"                  // JRC Global Surface Water (solo la carpeta global-surface-water)
 ];
+const RASTER_PATHS = { "storage.googleapis.com": "/global-surface-water/" };
 
 // Servicios de pronóstico (JSON) y cuánto tiempo guardar sus respuestas
 const JSON_HOSTS = {
@@ -35,7 +37,7 @@ const ALLOWED_ORIGINS = [
 ];
 
 // Identificación que exige MET Norway
-const USER_AGENT = "Umbral/0.3 github.com/joelrosadov/umbral";
+const USER_AGENT = "Umbral/0.4 github.com/joelrosadov/umbral";
 
 const MAX_RANGE_BYTES = 16 * 1024 * 1024;  // 16 MB por lectura
 const RASTER_CACHE_SECONDS = 60 * 60 * 24 * 30;
@@ -58,13 +60,15 @@ export default {
     if (origin && !ALLOWED_ORIGINS.includes(origin)) return reply("Origen no permitido", 403);
 
     const params = new URL(request.url).searchParams;
-    if (!params.has("url")) return reply("Umbral · intermediario de datos activo (v0.3). Uso: ?url=<dirección permitida>", 200);
+    if (!params.has("url")) return reply("Umbral · intermediario de datos activo (v0.4). Uso: ?url=<dirección permitida>", 200);
 
     let target;
     try { target = new URL(params.get("url")); } catch (e) { return reply("Parámetro url inválido", 400); }
     if (target.protocol !== "https:") return reply("Solo se permiten direcciones https", 403);
 
     if (target.hostname in JSON_HOSTS) return proxyJson(target, JSON_HOSTS[target.hostname], cors, ctx, reply);
+    const onlyPath = RASTER_PATHS[target.hostname];
+    if (onlyPath && !target.pathname.startsWith(onlyPath)) return reply("Ruta de datos no permitida", 403);
     if (RASTER_HOSTS.includes(target.hostname)) return proxyRange(request, target, cors, ctx, reply);
     return reply("Servidor de datos no permitido", 403);
   }
