@@ -35,6 +35,7 @@
   }
   const handUrl = (lon, lat) => `https://glo-30-hand.s3.us-west-2.amazonaws.com/v1/2021/${cop(lon, lat)}_HAND.tif`;
   const demUrl = (lon, lat) => { const n = cop(lon, lat); return `https://copernicus-dem-30m.s3.amazonaws.com/${n}_DEM/${n}_DEM.tif`; };
+  const wbmUrl = (lon, lat) => { const n = cop(lon, lat); return `https://copernicus-dem-30m.s3.amazonaws.com/${n}_DEM/AUXFILES/${n}_WBM.tif`; };
   const AQ = "https://aqueduct.wridata.org/AqueductFloods20/";
   const coastUrl = rp => `${AQ}inuncoast_historical_nosub_hist_rp${pad(rp, 4)}_0.tif`;
 
@@ -158,13 +159,14 @@
       fl500: () => sample(jrcUrl(lon, lat, 500), lon, lat),
       hand: () => sample(handUrl(lon, lat), lon, lat, 0),
       dem: () => sample(demUrl(lon, lat), lon, lat, 8, 40000, true),
-      coast100: () => sample(coastUrl(100), lon, lat, 1)
+      coast100: () => sample(coastUrl(100), lon, lat, 1),
+      wbm: () => sample(wbmUrl(lon, lat), lon, lat, 0)
     };
     const all = Object.entries(jobs).map(([k, fn]) => fn().then(v => { r[k] = v; onUpdate(summarize(r)); }));
     return Promise.all(all).then(() => summarize(r, true));
   }
   function summarize(r, done = false) {
-    done = done || Object.keys(r).length === 6;
+    done = done || Object.keys(r).length === 7;
     const keys = ["fl10", "fl100", "fl500", "hand", "dem", "coast100"];
     const loaded = keys.filter(k => r[k]).length;
     const fluvReady = r.fl10 && r.fl100 && r.fl500 && r.hand;
@@ -178,5 +180,5 @@
     return { raw: r, loaded, total: keys.length, done: done || loaded === keys.length, fluv, coast, top, failedAll, partial: known.length < 3, pluv, parts, LEVELS };
   }
 
-  window.Risk = { analyze, LEVELS, sources: { jrcUrl, handUrl, demUrl, coastUrl } };
+  window.Risk = { analyze, LEVELS, sources: { jrcUrl, handUrl, demUrl, coastUrl, wbmUrl } };
 })();

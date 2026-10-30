@@ -87,7 +87,7 @@ pinEl.innerHTML = '<svg viewBox="0 0 34 44" width="34" height="44" aria-hidden="
 const marker = new maplibregl.Marker({ element: pinEl, anchor: "bottom", draggable: true });
 marker.on("dragend", () => { const p = marker.getLngLat(); setPin(p.lng, p.lat, { fly: false }); });
 
-map.on("click", e => setPin(e.lngLat.lng, e.lngLat.lat, { fly: false, point: e.point }));
+map.on("click", e => window.MODE !== "cumulos" && setPin(e.lngLat.lng, e.lngLat.lat, { fly: false, point: e.point }));
 map.on("mousemove", e => {
   const f = buildingAt(e.point);
   map.getCanvas().style.cursor = f ? "pointer" : "";
@@ -99,27 +99,58 @@ function setPin(lon, lat, { fly = true, zoom, point } = {}) {
   marker.setLngLat([lon, lat]).addTo(map);
   if (fly) map.flyTo({ center: [lon, lat], zoom: zoom || Math.max(map.getZoom(), 17), duration: REDUCED ? 0 : 1400, padding: mapPadding() });
   const id = ++reqId;
-  current = { lon, lat, place: null, building: null, elev: null, risk: null, fc: { rain: null, river: null } };
+  current = { lon, lat, place: null, building: null, elev: null, risk: null, fc: { rain: null, river: null }, surface: null };
+  // Los análisis de tierra (inundación, lluvia, pronóstico) solo arrancan si el punto es tierra firme
+  const startLand = () => {
+    if (window.Forecast) {
+      const f = Forecast.forecast(lon, lat);
+      f.rain.then(v => { if (id === reqId) { current.fc.rain = v; render(); } });
+      f.river.then(v => { if (id === reqId) { current.fc.river = v; render(); } });
+    }
+    if (window.Risk) Risk.analyze(lon, lat, s => { if (id === reqId) { current.risk = s; checkWbm(s); render(); } }).then(s => { if (id === reqId) { current.risk = s; checkWbm(s); render(); } });
+  };
+  // Respaldo: si la máscara de agua de Copernicus dice mar, río o lago y no hay edificio, se trata como agua
+  const checkWbm = s => {
+    const w = s && s.raw.wbm;
+    if (current.surface === "tierra" && !current.building && w && w.status === "ok" && [1, 2, 3].includes(w.value)) {
+      current.surface = { 1: "mar", 2: "lago", 3: "rio" }[w.value];
+      map.getSource("sel")?.setData(emptyFC());
+    }
+  };
   const pick = () => {
     const pt = point && !fly ? point : map.project([lon, lat]);
+    const water = waterAt(pt);
+    if (water) { current.surface = water; map.getSource("sel")?.setData(emptyFC()); render(); return; }
+    current.surface = "tierra";
     current.building = describeBuilding(buildingAt(pt));
     map.getSource("sel")?.setData(current.building ? { type: "FeatureCollection", features: [current.building.feature] } : emptyFC());
     render();
+    startLand();
   };
   render();
   if (fly) map.once("idle", () => { if (id === reqId) pick(); }); else pick();
   elevationAt(lon, lat).then(v => { if (id === reqId) { current.elev = v; render(); } });
   reverse(lon, lat).then(r => { if (id === reqId) { current.place = r; render(); } });
-  if (window.Forecast) {
-    const f = Forecast.forecast(lon, lat);
-    f.rain.then(v => { if (id === reqId) { current.fc.rain = v; render(); } });
-    f.river.then(v => { if (id === reqId) { current.fc.river = v; render(); } });
-  }
-  if (window.Risk) Risk.analyze(lon, lat, s => { if (id === reqId) { current.risk = s; render(); } }).then(s => { if (id === reqId) { current.risk = s; render(); } });
   const url = new URL(location.href); url.searchParams.set("p", `${lat.toFixed(6)},${lon.toFixed(6)}`); history.replaceState(null, "", url);
 }
 function mapPadding() {
   return innerWidth > 820 ? { left: 400, right: 420, top: 40, bottom: 40 } : { top: 200, bottom: innerHeight * 0.48, left: 20, right: 20 };
+}
+
+/* ---------- agua: mar, río o lago según el mapa base ---------- */
+function waterAt(point) {
+  const fs = map.queryRenderedFeatures([point.x, point.y]);
+  const poly = fs.find(f => f.sourceLayer === "water" && f.properties.class !== "swimming_pool");
+  if (poly) {
+    const c = poly.properties.class;
+    return c === "ocean" ? "mar" : c === "lake" || c === "pond" ? "lago" : "rio";
+  }
+  if (map.getZoom() >= 14) {
+    const box = [[point.x - 2, point.y - 2], [point.x + 2, point.y + 2]];
+    const line = map.queryRenderedFeatures(box).find(f => f.sourceLayer === "waterway" && ["river", "canal"].includes(f.properties.class));
+    if (line) return "rio";
+  }
+  return null;
 }
 
 /* ---------- edificios ---------- */
@@ -208,6 +239,7 @@ async function reverse(lon, lat) {
 /* ---------- ficha ---------- */
 function render() {
   const c = current, box = $("#result"); if (!c) return;
+  if (c.surface && c.surface !== "tierra") return renderWater(c, box);
   const loading = '<span class="loading" aria-label="Cargando"></span>';
   const place = c.place;
   const b = c.building;
@@ -242,6 +274,24 @@ function render() {
   $("#shareBtn").onclick = () => copy(location.href, "Enlace copiado");
   const sb = $("#sheetBtn");
   if (box.classList.contains("min")) { sb.textContent = "Ver más"; sb.setAttribute("aria-expanded", "false"); }
+  sb.onclick = () => { const m = box.classList.toggle("min"); sb.textContent = m ? "Ver más" : "Ocultar"; sb.setAttribute("aria-expanded", String(!m)); };
+}
+function renderWater(c, box) {
+  const T = {
+    mar: { t: "Este punto está en el mar", p: "Los análisis de inundación, encharcamiento y lluvia aplican solo a tierra firme. Para puntos en el mar, Umbral mostrará amenazas marinas: sismo, tsunami y tormentas tropicales." },
+    rio: { t: "Este punto está sobre un río o estero", p: "Los análisis de riesgo aplican solo a tierra firme. Si quieres evaluar un inmueble, mueve el pin a la orilla o búscalo por su dirección." },
+    lago: { t: "Este punto está sobre un lago o laguna", p: "Los análisis de riesgo aplican solo a tierra firme. Si quieres evaluar un inmueble, mueve el pin a la orilla o búscalo por su dirección." }
+  }[c.surface];
+  const wave = '<svg width="20" height="20" viewBox="0 0 16 16"><path d="M1 6c2-1.6 3.6-1.6 5 0s3 1.6 5 0 3-1.6 4 0M1 11c2-1.6 3.6-1.6 5 0s3 1.6 5 0 3-1.6 4 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+  box.innerHTML = `
+    <div class="r-head"><div class="grow"><h2>${c.place && !["Lugar sin nombre", "Ubicación seleccionada"].includes(c.place.title) ? esc(c.place.title) : { mar: "Punto en el mar", rio: "Punto sobre un río", lago: "Punto sobre un lago" }[c.surface]}</h2><p>${c.place && c.place.title !== "Ubicación seleccionada" ? esc(c.place.sub) : ""}</p></div><button id="sheetBtn" class="btn" aria-expanded="true">Ocultar</button></div>
+    <div class="verdict water"><b>${wave}${T.t}</b><span>${T.p}</span></div>
+    ${c.surface === "mar" ? `<div class="rows">
+      <div class="row"><span class="ic"><svg width="20" height="20" viewBox="0 0 16 16"><path d="M1 8h3l1.5-4 2.5 9 2-7 1.5 3H15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><div class="row-t"><strong>Sismo y tsunami</strong><span class="soon-pill">En desarrollo</span></div><p>Zona sísmica, sismos históricos cercanos y tsunamis registrados.</p></div></div>
+      <div class="row"><span class="ic">${wave}</span><div><div class="row-t"><strong>Tormentas tropicales</strong><span class="soon-pill">En desarrollo</span></div><p>Trayectorias históricas de huracanes y tormentas que pasaron cerca.</p></div></div>
+    </div>` : ""}
+    <div class="foot"><span class="coords">${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</span></div>`;
+  const sb = $("#sheetBtn");
   sb.onclick = () => { const m = box.classList.toggle("min"); sb.textContent = m ? "Ver más" : "Ocultar"; sb.setAttribute("aria-expanded", String(!m)); };
 }
 function riskHtml(R, ico, fc) {

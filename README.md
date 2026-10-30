@@ -9,7 +9,7 @@ Umbral muestra en un mapa los riesgos naturales de cualquier lugar o edificio de
 | 1 | Mapa mundial a nivel de calle, edificios, búsqueda de direcciones, elevación del terreno, vista 3D y relieve | Listo |
 | 2 | Riesgo real por punto: inundación fluvial (JRC/GloFAS), costera (WRI Aqueduct), encharcamiento por lluvia (relieve 30 m + HAND), y pronóstico de lluvia y caudal en tiempo real | En prueba |
 | 3 | Refinamiento por edificio y amenaza sísmica por país | Pendiente |
-| 4 | Carga de carteras y API | Pendiente |
+| 4 | Módulo de cúmulos: carga de cartera (Excel/CSV), mapa de concentración, mayores cúmulos por radio y detalle por ramo y cedente | En prueba |
 
 ## Cómo publicarlo gratis con GitHub Pages
 
@@ -36,10 +36,12 @@ y abre `http://localhost:8000`.
 - `styles.css`: estilos, con modo claro y oscuro.
 - `app.js`: mapa, búsqueda, selección de edificios y ficha del lugar.
 - `risk.js`: lectura de las capas de riesgo y cálculo del nivel de riesgo.
+- `cumulos.js`: módulo de cúmulos de riesgo; la cartera se procesa solo en el navegador.
+- `calibracion.html`: página para calibrar el indicador de anegamiento contra sectores conocidos.
 - `forecast.js`: pronóstico de lluvia (MET Norway) y de caudal del río más cercano (GloFAS vía Open-Meteo).
 - `prueba.html`: página de diagnóstico de las fuentes de datos.
 - `cloudflare/worker.js`: intermediario de datos.
-- `vendor/`: MapLibre GL JS 4.7.1 y geotiff.js 2.1.3, incluidos para no depender de un CDN.
+- `vendor/`: MapLibre GL JS 4.7.1, geotiff.js 2.1.3 y SheetJS 0.18.5, incluidos para no depender de un CDN.
 
 ## Intermediario de datos (Cloudflare Worker)
 
